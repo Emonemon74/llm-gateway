@@ -6,7 +6,7 @@
 //      KEYS (comma list of API keys), RATE (req/s), DURATION, MODEL, EXPECT_429=1
 import http from 'k6/http';
 import exec from 'k6/execution';
-import { Counter } from 'k6/metrics';
+import { Counter, Trend } from 'k6/metrics';
 
 const BASES = __ENV.BASES.split(',');
 const KEYS = __ENV.KEYS.split(',');
@@ -16,7 +16,9 @@ const RATE = parseInt(__ENV.RATE);
 const s200 = new Counter('status_200');
 const s429 = new Counter('status_429');
 const s5xx = new Counter('status_5xx');
+const s503 = new Counter('status_503'); // load shed (subset of 5xx)
 const sOther = new Counter('status_other');
+const latOk = new Trend('latency_ok', true); // successful requests only
 
 if (__ENV.EXPECT_429) http.setResponseCallback(http.expectedStatuses(200, 429));
 
@@ -45,8 +47,14 @@ export default function () {
   const res = http.post(`${BASES[i % BASES.length]}/v1/chat/completions`, PAYLOAD, {
     headers: { Authorization: `Bearer ${KEYS[i % KEYS.length]}`, 'Content-Type': 'application/json' },
   });
-  if (res.status === 200) s200.add(1);
+  if (res.status === 200) {
+    s200.add(1);
+    latOk.add(res.timings.duration);
+  }
   else if (res.status === 429) s429.add(1);
-  else if (res.status >= 500) s5xx.add(1);
+  else if (res.status >= 500) {
+    s5xx.add(1);
+    if (res.status === 503) s503.add(1);
+  }
   else sOther.add(1);
 }

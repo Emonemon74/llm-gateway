@@ -75,7 +75,27 @@ Redis/Postgres), but this laptop has no spare cores to demonstrate it; a 3-repli
 (`run_load_test.py scale`) was CPU-starved by the generator and Docker VM, so no scaling number
 is claimed.
 
-**Finding — overload collapses instead of degrading.** Past saturation, requests queue inside the
-process until clients time out, so *accepted* traffic suffers too. Fix (next): admission control
-(cap in-flight requests per replica, shed the excess immediately with 503 + Retry-After) so a
-replica serves its capacity at normal latency and rejects the rest fast.
+**Finding — overload collapsed instead of degrading.** Past saturation, requests queued inside
+the process until clients timed out, so *accepted* traffic suffered too. Fixed with admission
+control (below).
+
+### Load shedding A/B (same machine, same session, alternating OFF/ON, 2 rounds)
+`app/shedding.py`: reject `/v1/*` with an immediate 503 + `Retry-After` when smoothed event-loop
+lag > 75 ms (the CPU-saturation signal) or in-flight > 2000 (hard cap). One replica, 20 s per step.
+"timeouts" = client gave up (k6 status 0). "200s only" = latency of successful requests.
+
+| offered | shedding | succeeded | shed (503) | timeouts | 200s p50 | 200s p95 |
+|---|---|---|---|---|---|---|
+| 500/s | off | 5,027 / 5,171 | 0 | 4,616 / 4,459 | 301 / 548 ms | 9.2 / 9.8 s |
+| 500/s | **on** | **7,852 / 8,620** | 2,050 / 1,096 | **0 / 144** | **77 / 54 ms** | **1.5 / 1.6 s** |
+| 600/s | off | 2,722 / 4,040 | 0 | 8,836 / 7,493 | 4.4 / 3.0 s | 13.9 / 13.6 s |
+| 600/s | **on** | **9,266 / 4,904** | 2,494 / 6,473 | **0 / 174** | **62 ms / 1.1 s** | **1.5 / 3.9 s** |
+
+- Goodput under overload: **+56% to +67% at 500/s, 1.2x-3.4x at 600/s**; client timeouts went from
+  thousands to near zero (overload now fails fast and explicitly).
+- Median latency of successful requests stayed near normal in 3 of 4 runs.
+- **Not solved:** p95 of successful requests under overload is still 1.5-3.9 s. Queueing happens
+  before the middleware runs (socket accept + HTTP parsing in the same saturated process) and the
+  lag signal is smoothed, so it reacts late. Next steps would be a lower / proportional
+  (probabilistic) threshold, a connection limit at the reverse proxy in front, and more replicas.
+  (The 600/s ON round 2 ran while machine load rose 4.0 -> 6.6.)

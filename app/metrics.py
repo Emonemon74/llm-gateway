@@ -126,4 +126,16 @@ DELAYED_DEPTH = Gauge(
 )
 DLQ_DEPTH = Gauge("gateway_dlq_depth", "Dead-lettered batch items.", registry=REGISTRY)
 
+SHED = Counter(
+    "gateway_shed_total",
+    "Requests rejected by admission control. reason: inflight | loop_lag.",
+    ["reason"],
+    registry=REGISTRY,
+)
+LOOP_LAG = Gauge(
+    "gateway_event_loop_lag_seconds",
+    "Smoothed event-loop lag (CPU saturation signal).",
+    registry=REGISTRY,
+)
+
 CIRCUIT_VALUES = {"closed": 0, "half_open": 1, "open": 2}

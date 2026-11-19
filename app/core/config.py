@@ -19,6 +19,10 @@ class Settings(BaseSettings):
 
     upstream_timeout_s: float = 60.0
 
+    # Admission control (app/shedding.py). 0 disables a signal.
+    shed_max_inflight: int = 2000
+    shed_max_loop_lag_ms: float = 75.0
+
     database_url: str = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway"
     breaker_failure_threshold: int = 5
     breaker_cooldown_s: float = 30.0

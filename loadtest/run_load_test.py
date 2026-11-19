@@ -243,6 +243,10 @@ def run_k6(
         "r429": int(val("status_429", "count")),
         "err5xx": int(val("status_5xx", "count")),
         "other": int(val("status_other", "count")),
+        "shed503": int(val("status_503", "count")),
+        "ok_p50_ms": val("latency_ok", "med"),
+        "ok_p95_ms": val("latency_ok", "p(95)"),
+        "ok_p99_ms": val("latency_ok", "p(99)"),
         "dropped": int(val("dropped_iterations", "count")),
         "p50_ms": val("http_req_duration", "med"),
         "p95_ms": val("http_req_duration", "p(95)"),
@@ -316,8 +320,9 @@ def with_overhead(stack: Stack, fn, *, wait: bool = True):
 def fmt(r: dict) -> str:
     return (
         f"offered={r['offered_rps']:>5}  achieved={r['achieved_rps']:>7.1f}  ok={r['ok']:>6}  "
-        f"5xx={r['err5xx']:>4}  other={r['other']:>4}  429={r['r429']:>5}  dropped={r['dropped']:>5}  "
+        f"5xx={r['err5xx']:>4} (shed={r['shed503']:>4})  other={r['other']:>4}  429={r['r429']:>5}  dropped={r['dropped']:>5}  "
         f"p50={r['p50_ms']:>6.0f}  p95={r['p95_ms']:>6.0f}  p99={r['p99_ms']:>6.0f} ms"
+        f"  | 200s only p50/p95/p99 = {r['ok_p50_ms']:.0f}/{r['ok_p95_ms']:.0f}/{r['ok_p99_ms']:.0f} ms"
         + (
             f"  | gw-overhead p50/p95/p99 = {r['overhead_p50_ms']:.1f}/"
             f"{r['overhead_p95_ms']:.1f}/{r['overhead_p99_ms']:.1f} ms  | gw cpu={r['gw_cpu_cores']:.2f} cores"
@@ -454,7 +459,7 @@ async def main() -> None:
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
     results: dict = {}
     if which in ("sweep", "all"):
-        results["sweep_1"] = await scenario_sweep(1, [100, 200, 300, 400, 500, 600])
+        results["sweep_1"] = await scenario_sweep(1, [200, 300, 400, 500, 600])
     if which == "scale":  # only meaningful on a machine with spare cores
         results["sweep_3"] = await scenario_sweep(3, [400, 800, 1200, 1600])
     if which in ("failover", "all"):
