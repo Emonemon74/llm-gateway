@@ -8,7 +8,8 @@ Design and roadmap: [docs/PLAN.md](docs/PLAN.md).
 Done: OpenAI-compatible proxy (+SSE), tenants and hashed API keys, Redis Lua rate limiting
 (RPM+TPM), monthly token budgets (reserve/reconcile, rebuilt from Postgres), model aliases with
 ordered failover, shared circuit breaker, async usage events.
-Next: Prometheus/Grafana, batch API on Redis Streams, semantic cache, load tests, deploy.
+Prometheus metrics + Grafana dashboard (incl. gateway-overhead latency).
+Next: batch API on Redis Streams, semantic cache, tracing, load tests, deploy.
 
 ## Run locally
 ```bash
@@ -31,3 +32,15 @@ curl -XPOST localhost:8000/admin/routes -H "Authorization: Bearer $ADMIN_TOKEN" 
 Extra OpenAI-compatible upstreams: `EXTRA_PROVIDERS='{"alpha":{"base_url":"http://...","api_key":"..."}}'`.
 Responses carry `x-gateway-provider` and `x-request-id`. Streaming can only fail over before the
 first byte is sent; a later upstream failure ends the stream with an SSE error event.
+
+## Observability
+```bash
+docker compose -f deploy/docker-compose.yml up -d       # + Prometheus :9090, Grafana :3000
+ADMIN_TOKEN=dev-admin uv run uvicorn app.main:app --port 8000
+ADMIN_TOKEN=dev-admin uv run python loadtest/demo_traffic.py 30   # something to look at
+open http://localhost:3000/d/llm-gateway                # dashboard "LLM Gateway" (no login in dev)
+```
+`/metrics` requires the admin token. Key series: `gateway_overhead_seconds` (latency the gateway
+adds on top of the upstream), `gateway_upstream_requests_total{outcome}` (failovers),
+`gateway_circuit_state`, `gateway_rate_limited_total`, per-tenant token and cost counters.
+Label cardinality is bounded by design (see `app/metrics.py`).

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hmac
+import time
 import uuid
 from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 
+from app import metrics as m
 from app.core.config import settings
 from app.core.security import hash_key
 from app.db.models import ApiKey, Tenant
@@ -30,8 +32,10 @@ def _bearer(authorization: str | None) -> str | None:
 async def authenticate(
     request: Request, authorization: str | None = Header(default=None)
 ) -> AuthContext:
+    request.state.t0 = time.monotonic()  # request clock starts here (auth is gateway overhead)
     token = _bearer(authorization)
     if not token:
+        m.AUTH_FAILURES.labels("missing").inc()
         raise HTTPException(401, "missing bearer token", headers={"WWW-Authenticate": "Bearer"})
     async with request.app.state.sessionmaker() as session:
         found = (
@@ -43,6 +47,7 @@ async def authenticate(
         ).one_or_none()
     row, budget = found if found else (None, 0)
     if row is None or row.revoked_at is not None:
+        m.AUTH_FAILURES.labels("invalid").inc()
         raise HTTPException(
             401, "invalid or revoked api key", headers={"WWW-Authenticate": "Bearer"}
         )

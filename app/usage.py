@@ -32,6 +32,10 @@ class UsageRecorder:
         self._task: asyncio.Task | None = None
         self.dropped = 0
 
+    @property
+    def depth(self) -> int:
+        return self._q.qsize()
+
     def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="usage-recorder")
 

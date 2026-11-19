@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+scrape_configs:
+  - job_name: llm-gateway
+    metrics_path: /metrics
+    # /metrics requires the admin token. DEV VALUE ONLY: inject via secret in real deployments.
+    authorization:
+      type: Bearer
+      credentials: dev-admin
+    static_configs:
+      - targets: ["host.docker.internal:8000"]   # gateway running on the host (uvicorn)
