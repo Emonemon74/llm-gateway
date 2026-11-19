@@ -95,6 +95,14 @@ def create_mock_app(cfg: MockConfig) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    @app.post("/control")
+    async def control(body: dict):
+        """Flip behaviour at runtime (used by chaos/load tests to start and end an 'outage')."""
+        for k in ("latency_ms", "error_rate", "error_status"):
+            if k in body:
+                setattr(cfg, k, type(getattr(cfg, k))(body[k]))
+        return {"error_rate": cfg.error_rate, "latency_ms": cfg.latency_ms}
+
     @app.get("/stats")
     async def stats():
         return {"calls": cfg.calls}
