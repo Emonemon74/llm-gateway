@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 # Must be set before any `app` import: settings are read at import time.
@@ -109,3 +110,36 @@ async def gateway(app, api_key):
 @pytest.fixture
 def limiter(app) -> RateLimiter:
     return app.state.limiter
+
+
+@pytest.fixture
+async def run_worker(app):
+    """Start in-process batch workers; stopped (gracefully) at teardown."""
+    from app.batch.worker import Worker
+
+    started = []
+
+    async def start(**kw):
+        defaults = {
+            "concurrency": 8,
+            "block_ms": 100,
+            "delayed_every_s": 0.05,
+            "reclaim_every_s": 0.1,
+            "reconcile_every_s": 0.1,
+            "reconcile_after_s": 60,
+            "backoff_base_s": 0.02,
+            "backoff_cap_s": 0.1,
+            "unavailable_delay_s": 0.1,
+            "visibility_timeout_s": 30,
+        }
+        w = Worker(app.state, **(defaults | kw))
+        stop = asyncio.Event()
+        task = asyncio.create_task(w.run(stop))
+        started.append((stop, task))
+        return w
+
+    yield start
+    for stop, _ in started:
+        stop.set()
+    for _, task in started:
+        await asyncio.wait_for(task, 10)

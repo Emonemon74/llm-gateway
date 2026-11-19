@@ -95,6 +95,10 @@ def create_mock_app(cfg: MockConfig) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    @app.get("/stats")
+    async def stats():
+        return {"calls": cfg.calls}
+
     @app.get("/healthz")
     async def healthz():
         return {"status": "ok"}

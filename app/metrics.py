@@ -110,4 +110,20 @@ USAGE_DROPPED = Gauge(
     registry=REGISTRY,
 )
 
+BATCH_ITEMS = Counter(
+    "gateway_batch_items_total",
+    "Batch item processing outcomes. outcome: done | retry | deferred | failed | duplicate.",
+    ["outcome"],
+    registry=REGISTRY,
+)
+QUEUE_DEPTH = Gauge(
+    "gateway_queue_depth",
+    "Batch work items queued or in flight (stream length).",
+    registry=REGISTRY,
+)
+DELAYED_DEPTH = Gauge(
+    "gateway_delayed_depth", "Batch items waiting on a retry/backpressure delay.", registry=REGISTRY
+)
+DLQ_DEPTH = Gauge("gateway_dlq_depth", "Dead-lettered batch items.", registry=REGISTRY)
+
 CIRCUIT_VALUES = {"closed": 0, "half_open": 1, "open": 2}

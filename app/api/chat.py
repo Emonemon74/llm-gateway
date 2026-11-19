@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -11,10 +10,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from app import metrics as m
+from app.accounting import Accounting
 from app.api.deps import Auth, AuthContext
 from app.limits.estimate import estimate_tokens
 from app.providers.base import ProviderError
-from app.routing.router import AllProvidersFailed, NoRoute, Target
+from app.routing.router import AllProvidersFailed, NoRoute
 
 router = APIRouter()
 _background: set[asyncio.Task] = set()  # keep refs so fire-and-forget tasks aren't GC'd
@@ -30,63 +30,6 @@ class ChatRequest(BaseModel):
 
 def _error(status: int, type_: str, message: str, headers: dict[str, str] | None = None):
     return HTTPException(status, {"error": {"type": type_, "message": message}}, headers=headers)
-
-
-@dataclass
-class Accounting:
-    """Everything that must happen when a request ends: reconcile limits, record usage."""
-
-    state: Any
-    auth: AuthContext
-    request_id: str
-    model: str
-    estimated: int
-    t0: float
-
-    async def release(self, status: str = "error") -> None:
-        """Request produced nothing: give back the TPM tokens and the budget reservation."""
-        key_id = str(self.auth.api_key_id)
-        await self.state.limiter.reconcile(key_id, self.auth.tpm_limit, self.estimated, 0)
-        await self.state.budget.adjust(self.auth.tenant_id, -self.estimated)
-        self._record(None, 0, 0, 0, False, 0.0, status)
-
-    async def settle(self, target: Target, usage: dict | None, status: str = "ok") -> None:
-        key_id = str(self.auth.api_key_id)
-        if usage and usage.get("total_tokens") is not None:
-            p, c = int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))
-            total, estimated_flag = int(usage["total_tokens"]), False
-        else:  # provider didn't report usage: keep the up-front estimate
-            p = c = 0
-            total, estimated_flag = self.estimated, True
-        await self.state.limiter.reconcile(key_id, self.auth.tpm_limit, self.estimated, total)
-        await self.state.budget.adjust(self.auth.tenant_id, total - self.estimated)
-        cost = target.cost(p, c)
-        if estimated_flag:
-            m.TOKENS_ESTIMATED.inc()
-        else:
-            tenant = str(self.auth.tenant_id)
-            m.TOKENS.labels(tenant, "prompt").inc(p)
-            m.TOKENS.labels(tenant, "completion").inc(c)
-            m.COST_USD.labels(tenant).inc(cost)
-        self._record(target, p, c, total, estimated_flag, cost, status)
-
-    def _record(self, target, p, c, total, estimated_flag, cost, status) -> None:
-        self.state.usage.record(
-            {
-                "tenant_id": self.auth.tenant_id,
-                "api_key_id": self.auth.api_key_id,
-                "request_id": self.request_id,
-                "provider": target.provider if target else None,
-                "model": self.model,
-                "prompt_tokens": p,
-                "completion_tokens": c,
-                "total_tokens": total,
-                "tokens_estimated": estimated_flag,
-                "cost_usd": cost,
-                "latency_ms": int((time.monotonic() - self.t0) * 1000),
-                "status": status,
-            }
-        )
 
 
 def _spawn(coro) -> None:
