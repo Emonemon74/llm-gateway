@@ -62,3 +62,10 @@ async def test_key_for_unknown_tenant_is_404(client):
         "/admin/tenants/00000000-0000-0000-0000-000000000000/keys", json={}, headers=ADMIN
     )
     assert r.status_code == 404
+
+
+async def test_out_of_range_key_limits_are_422_not_500(client):
+    t = (await client.post("/admin/tenants", json={"name": "big"}, headers=ADMIN)).json()
+    for bad in ({"tpm_limit": 10**10}, {"rpm_limit": 0}, {"rpm_limit": 2**31}):
+        r = await client.post(f"/admin/tenants/{t['id']}/keys", json=bad, headers=ADMIN)
+        assert r.status_code == 422

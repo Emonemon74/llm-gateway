@@ -9,6 +9,7 @@ from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 
 from app import metrics as m
+from app.auth_cache import CachedKey
 from app.core.config import settings
 from app.core.security import hash_key
 from app.db.models import ApiKey, Tenant
@@ -21,6 +22,9 @@ class AuthContext:
     rpm_limit: int
     tpm_limit: int
     monthly_token_budget: int
+
+
+_WWW = {"WWW-Authenticate": "Bearer"}
 
 
 def _bearer(authorization: str | None) -> str | None:
@@ -37,20 +41,40 @@ async def authenticate(
     if not token:
         m.AUTH_FAILURES.labels("missing").inc()
         raise HTTPException(401, "missing bearer token", headers={"WWW-Authenticate": "Bearer"})
+    key_hash = hash_key(token)
+    cache = request.app.state.auth_cache
+    hit = await cache.get(key_hash)
+    if hit is not None:
+        if hit == "invalid":
+            m.AUTH_FAILURES.labels("invalid").inc()
+            raise HTTPException(401, "invalid or revoked api key", headers=_WWW)
+        m.AUTH_CACHE.labels("hit").inc()
+        return AuthContext(
+            hit.tenant_uuid,
+            uuid.UUID(hit.api_key_id),
+            hit.rpm_limit,
+            hit.tpm_limit,
+            hit.monthly_token_budget,
+        )
+
+    m.AUTH_CACHE.labels("miss").inc()
     async with request.app.state.sessionmaker() as session:
         found = (
             await session.execute(
                 select(ApiKey, Tenant.monthly_token_budget)
                 .join(Tenant, Tenant.id == ApiKey.tenant_id)
-                .where(ApiKey.key_hash == hash_key(token))
+                .where(ApiKey.key_hash == key_hash)
             )
         ).one_or_none()
     row, budget = found if found else (None, 0)
     if row is None or row.revoked_at is not None:
         m.AUTH_FAILURES.labels("invalid").inc()
-        raise HTTPException(
-            401, "invalid or revoked api key", headers={"WWW-Authenticate": "Bearer"}
-        )
+        await cache.put_invalid(key_hash)
+        raise HTTPException(401, "invalid or revoked api key", headers=_WWW)
+    await cache.put(
+        key_hash,
+        CachedKey(str(row.tenant_id), str(row.id), row.rpm_limit, row.tpm_limit, budget),
+    )
     return AuthContext(row.tenant_id, row.id, row.rpm_limit, row.tpm_limit, budget)
 
 

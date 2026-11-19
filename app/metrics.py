@@ -86,6 +86,12 @@ AUTH_FAILURES = Counter(
     ["reason"],
     registry=REGISTRY,
 )
+AUTH_CACHE = Counter(
+    "gateway_auth_cache_total",
+    "API-key lookups. result: hit | miss.",
+    ["result"],
+    registry=REGISTRY,
+)
 INFLIGHT = Gauge("gateway_inflight_requests", "Requests currently being served.", registry=REGISTRY)
 CIRCUIT_STATE = Gauge(
     "gateway_circuit_state",

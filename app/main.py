@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import admin, chat, metrics
+from app.auth_cache import AuthCache
 from app.core.config import settings
 from app.db.session import make_engine, make_sessionmaker
 from app.limits.budget import BudgetManager
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     redis = aioredis.from_url(settings.redis_url, socket_timeout=0.25, socket_connect_timeout=0.25)
     app.state.redis = redis
     app.state.limiter = RateLimiter(redis)
+    app.state.auth_cache = AuthCache(redis)
     app.state.budget = BudgetManager(redis, app.state.sessionmaker)
     app.state.breaker = CircuitBreaker(
         redis,

@@ -12,6 +12,8 @@ from app.api.deps import require_admin
 from app.core.security import generate_key
 from app.db.models import ApiKey, ModelRoute, Tenant
 
+INT32_MAX = 2_147_483_647
+
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)], tags=["admin"])
 
 
@@ -21,8 +23,9 @@ class TenantIn(BaseModel):
 
 
 class KeyIn(BaseModel):
-    rpm_limit: int = Field(default=60, ge=1)
-    tpm_limit: int = Field(default=100_000, ge=1)
+    # le= matches the INTEGER column (int32); out-of-range must be a 422, not a DB 500
+    rpm_limit: int = Field(default=60, ge=1, le=INT32_MAX)
+    tpm_limit: int = Field(default=100_000, ge=1, le=INT32_MAX)
 
 
 @router.post("/tenants", status_code=201)
@@ -81,6 +84,8 @@ async def revoke_key(key_id: uuid.UUID, request: Request):
         if k.revoked_at is None:
             k.revoked_at = datetime.now(UTC)
             await s.commit()
+        # Drop the cached identity so revocation takes effect on the very next request.
+        await request.app.state.auth_cache.invalidate(k.key_hash)
 
 
 class RouteIn(BaseModel):

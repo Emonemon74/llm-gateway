@@ -14,6 +14,7 @@ from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 
+from app.auth_cache import AuthCache
 from app.core.config import settings
 from app.db.session import make_engine, make_sessionmaker
 from app.limits.budget import BudgetManager
@@ -64,6 +65,7 @@ async def app(mocks):
     await redis.flushdb()
     app.state.redis = redis
     app.state.limiter = RateLimiter(redis)
+    app.state.auth_cache = AuthCache(redis)
     app.state.budget = BudgetManager(redis, sm)
     # short cooldown so breaker recovery is testable; threshold 3 keeps tests small
     app.state.breaker = CircuitBreaker(redis, threshold=3, cooldown_s=0.4, probe_timeout_s=5)
