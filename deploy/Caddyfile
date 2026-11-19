@@ -1,0 +1,42 @@
+# SITE_ADDRESS = your hostname (e.g. gw.example.com or 1-2-3-4.nip.io) -> automatic HTTPS.
+# For a local test use ":80" (plain HTTP).
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	# /admin and /metrics are NEVER reachable from the internet. Use deploy/admin.sh on the server.
+	@private path /admin /admin/* /metrics /metrics/*
+	respond @private 404
+
+	# Batches can carry up to 10k requests.
+	request_body {
+		max_size 20MB
+	}
+
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	handle /healthz {
+		reverse_proxy api:8000
+	}
+
+	handle /v1/* {
+		reverse_proxy {
+			# Resolve the `api` service to ALL replicas and spread requests across them.
+			dynamic a {
+				name api
+				port 8000
+				refresh 5s
+			}
+			lb_policy least_conn
+			flush_interval -1 # stream SSE tokens as they arrive
+			transport http {
+				response_header_timeout 120s
+			}
+		}
+	}
+
+	handle {
+		respond "llm-gateway: see /v1/chat/completions" 404
+	}
+}
