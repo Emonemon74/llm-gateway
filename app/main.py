@@ -8,8 +8,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api import admin, chat
 from app.core.config import settings
 from app.db.session import make_engine, make_sessionmaker
+from app.limits.budget import BudgetManager
 from app.limits.rate_limiter import RateLimiter
 from app.providers.registry import build_providers
+from app.routing.breaker import CircuitBreaker
+from app.routing.router import Router
+from app.usage import UsageRecorder
 
 
 @asynccontextmanager
@@ -20,7 +24,21 @@ async def lifespan(app: FastAPI):
     redis = aioredis.from_url(settings.redis_url, socket_timeout=0.25, socket_connect_timeout=0.25)
     app.state.redis = redis
     app.state.limiter = RateLimiter(redis)
+    app.state.budget = BudgetManager(redis, app.state.sessionmaker)
+    app.state.router = Router(
+        app.state.providers,
+        CircuitBreaker(
+            redis,
+            settings.breaker_failure_threshold,
+            settings.breaker_cooldown_s,
+            settings.breaker_probe_timeout_s,
+        ),
+        app.state.sessionmaker,
+    )
+    app.state.usage = UsageRecorder(app.state.sessionmaker)
+    app.state.usage.start()
     yield
+    await app.state.usage.stop()
     await redis.aclose()
     await engine.dispose()
 

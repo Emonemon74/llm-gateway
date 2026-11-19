@@ -5,7 +5,6 @@ os.environ["DATABASE_URL"] = "postgresql+asyncpg://gateway:gateway@localhost:543
 os.environ["ADMIN_TOKEN"] = "test-admin-token"
 os.environ["REDIS_URL"] = "redis://localhost:6379/1"  # db 1: never touches dev data
 
-import importlib
 
 import httpx
 import pytest
@@ -17,9 +16,14 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.session import make_engine, make_sessionmaker
+from app.limits.budget import BudgetManager
 from app.limits.rate_limiter import RateLimiter
 from app.main import create_app
 from app.providers.openai_compat import OpenAICompatProvider
+from app.routing.breaker import CircuitBreaker
+from app.routing.router import Router
+from app.usage import UsageRecorder
+from mock_provider.main import MockConfig, create_mock_app
 
 ADMIN = {"Authorization": f"Bearer {settings.admin_token}"}
 
@@ -30,40 +34,48 @@ def _migrated_db():
     command.upgrade(Config("alembic.ini"), "head")
 
 
-def make_app(mock_app):
-    """Gateway app wired in-process to a mock-provider ASGI app (no sockets)."""
-    upstream = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=mock_app), base_url="http://mock"
-    )
+MOCK_NAMES = ("mock", "alpha", "beta")
+
+
+@pytest.fixture
+def mocks() -> dict[str, MockConfig]:
+    """Independent fake upstreams. Tests flip `.error_rate` etc. to break one on demand."""
+    return {n: MockConfig(latency_ms=1) for n in MOCK_NAMES}
+
+
+@pytest.fixture
+async def app(mocks):
     app = create_app()
     app.state.providers = {
-        "mock": OpenAICompatProvider("mock", "http://mock/v1", "", client=upstream)
+        n: OpenAICompatProvider(
+            n,
+            f"http://{n}/v1",
+            "",
+            client=httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=create_mock_app(cfg)), base_url=f"http://{n}"
+            ),
+        )
+        for n, cfg in mocks.items()
     }
-    return app
-
-
-@pytest.fixture
-def mock_module(monkeypatch):
-    monkeypatch.setenv("MOCK_LATENCY_MS", "1")
-    import mock_provider.main as m
-
-    return importlib.reload(m)
-
-
-@pytest.fixture
-async def app(mock_module):
-    app = make_app(mock_module.app)
     engine = make_engine(settings.database_url, poolclass=NullPool)
-    app.state.sessionmaker = make_sessionmaker(engine)
+    sm = make_sessionmaker(engine)
+    app.state.sessionmaker = sm
     redis = aioredis.from_url(settings.redis_url)
     await redis.flushdb()
     app.state.redis = redis
     app.state.limiter = RateLimiter(redis)
+    app.state.budget = BudgetManager(redis, sm)
+    # short cooldown so breaker recovery is testable; threshold 3 keeps tests small
+    app.state.breaker = CircuitBreaker(redis, threshold=3, cooldown_s=0.4, probe_timeout_s=5)
+    app.state.router = Router(app.state.providers, app.state.breaker, sm, route_ttl_s=0)
+    app.state.usage = UsageRecorder(sm, linger_s=0.01)
+    app.state.usage.start()
     yield app
+    await app.state.usage.stop()
+    async with engine.begin() as conn:
+        await conn.execute(text("TRUNCATE tenants, model_routes CASCADE"))
     await redis.flushdb()
     await redis.aclose()
-    async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE tenants CASCADE"))
     await engine.dispose()
 
 

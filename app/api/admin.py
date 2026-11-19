@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import require_admin
 from app.core.security import generate_key
-from app.db.models import ApiKey, Tenant
+from app.db.models import ApiKey, ModelRoute, Tenant
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)], tags=["admin"])
 
@@ -81,3 +81,67 @@ async def revoke_key(key_id: uuid.UUID, request: Request):
         if k.revoked_at is None:
             k.revoked_at = datetime.now(UTC)
             await s.commit()
+
+
+class RouteIn(BaseModel):
+    alias: str = Field(min_length=1, max_length=100)
+    provider: str = Field(min_length=1, max_length=50)
+    upstream_model: str = Field(min_length=1, max_length=200)
+    priority: int = 0  # lower = tried first
+    cost_per_1k_in: float = Field(default=0.0, ge=0)
+    cost_per_1k_out: float = Field(default=0.0, ge=0)
+
+
+@router.post("/routes", status_code=201)
+async def create_route(body: RouteIn, request: Request):
+    async with request.app.state.sessionmaker() as s:
+        r = ModelRoute(**body.model_dump())
+        s.add(r)
+        await s.commit()
+    request.app.state.router.invalidate()
+    return {"id": str(r.id), **body.model_dump()}
+
+
+@router.get("/routes")
+async def list_routes(request: Request):
+    async with request.app.state.sessionmaker() as s:
+        rows = (
+            await s.execute(select(ModelRoute).order_by(ModelRoute.alias, ModelRoute.priority))
+        ).scalars()
+        return [
+            {
+                "id": str(r.id),
+                "alias": r.alias,
+                "provider": r.provider,
+                "upstream_model": r.upstream_model,
+                "priority": r.priority,
+                "enabled": r.enabled,
+            }
+            for r in rows
+        ]
+
+
+@router.delete("/routes/{route_id}", status_code=204)
+async def delete_route(route_id: uuid.UUID, request: Request):
+    async with request.app.state.sessionmaker() as s:
+        r = await s.get(ModelRoute, route_id)
+        if r is None:
+            raise HTTPException(404, "route not found")
+        await s.delete(r)
+        await s.commit()
+    request.app.state.router.invalidate()
+
+
+@router.get("/tenants/{tenant_id}/usage")
+async def tenant_usage(tenant_id: uuid.UUID, request: Request):
+    async with request.app.state.sessionmaker() as s:
+        t = await s.get(Tenant, tenant_id)
+    if t is None:
+        raise HTTPException(404, "tenant not found")
+    used = await request.app.state.budget.used(tenant_id)
+    return {
+        "tenant_id": str(tenant_id),
+        "monthly_token_budget": t.monthly_token_budget,
+        "used_tokens": used,
+        "remaining_tokens": max(0, t.monthly_token_budget - used),
+    }

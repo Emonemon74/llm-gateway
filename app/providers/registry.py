@@ -23,4 +23,8 @@ def build_providers() -> dict[str, Provider]:
         providers["gemini"] = OpenAICompatProvider(
             "gemini", settings.gemini_base_url, settings.gemini_api_key, timeout_s=t
         )
+    for name, cfg in settings.extra_providers.items():
+        providers[name] = OpenAICompatProvider(
+            name, cfg["base_url"], cfg.get("api_key", ""), timeout_s=t
+        )
     return providers
