@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
+from app.api.deps import Auth, AuthContext
 from app.providers.base import ProviderError
 
 router = APIRouter()
@@ -30,7 +31,7 @@ def _provider_for(request: Request, model: str):
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(req: ChatRequest, request: Request):
+async def chat_completions(req: ChatRequest, request: Request, auth: AuthContext = Auth):
     provider, upstream_model = _provider_for(request, req.model)
     body = req.model_dump() | {"model": upstream_model}
 

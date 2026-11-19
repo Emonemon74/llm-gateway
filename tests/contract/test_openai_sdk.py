@@ -1,9 +1,10 @@
 """The official OpenAI SDK must work against the gateway unmodified."""
+
 from openai import AsyncOpenAI
 
 
-async def test_sdk_chat(gateway):
-    client = AsyncOpenAI(base_url="http://gw/v1", api_key="sk-test", http_client=gateway)
+async def test_sdk_chat(gateway, api_key):
+    client = AsyncOpenAI(base_url="http://gw/v1", api_key=api_key, http_client=gateway)
     r = await client.chat.completions.create(
         model="mock/test", messages=[{"role": "user", "content": "hi"}]
     )
@@ -11,8 +12,8 @@ async def test_sdk_chat(gateway):
     assert r.usage and r.usage.total_tokens > 0
 
 
-async def test_sdk_stream(gateway):
-    client = AsyncOpenAI(base_url="http://gw/v1", api_key="sk-test", http_client=gateway)
+async def test_sdk_stream(gateway, api_key):
+    client = AsyncOpenAI(base_url="http://gw/v1", api_key=api_key, http_client=gateway)
     stream = await client.chat.completions.create(
         model="mock/test", messages=[{"role": "user", "content": "hi"}], stream=True
     )

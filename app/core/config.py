@@ -15,5 +15,9 @@ class Settings(BaseSettings):
 
     upstream_timeout_s: float = 60.0
 
+    database_url: str = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway"
+    # Bearer token for /admin/*. Empty = admin API disabled.
+    admin_token: str = ""
+
 
 settings = Settings()

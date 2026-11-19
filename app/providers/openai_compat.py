@@ -66,7 +66,9 @@ class OpenAICompatProvider(Provider):
         try:
             if resp.status_code >= 400:
                 text = (await resp.aread()).decode(errors="replace")[:300]
-                raise ProviderError(self.name, resp.status_code, text, _is_retryable(resp.status_code))
+                raise ProviderError(
+                    self.name, resp.status_code, text, _is_retryable(resp.status_code)
+                )
             async for line in resp.aiter_lines():
                 yield (line + "\n").encode()
         finally:

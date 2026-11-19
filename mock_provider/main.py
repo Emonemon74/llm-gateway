@@ -4,6 +4,7 @@ Env: MOCK_LATENCY_MS (default 200), MOCK_ERROR_RATE (0..1, default 0),
      MOCK_ERROR_STATUS (default 500), MOCK_STREAM_CHUNKS (default 5).
 Used for load tests and chaos tests; never hit real free-tier APIs for those.
 """
+
 import asyncio
 import json
 import os
@@ -36,21 +37,39 @@ async def completions(body: dict):
 
     if not body.get("stream"):
         return {
-            "id": "mock-1", "object": "chat.completion", "created": created, "model": model,
-            "choices": [{"index": 0, "finish_reason": "stop",
-                         "message": {"role": "assistant", "content": " ".join(["token"] * CHUNKS)}}],
+            "id": "mock-1",
+            "object": "chat.completion",
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": " ".join(["token"] * CHUNKS)},
+                }
+            ],
             "usage": _usage(body),
         }
 
     async def gen():
         for i in range(CHUNKS):
-            chunk = {"id": "mock-1", "object": "chat.completion.chunk", "created": created,
-                     "model": model, "choices": [{"index": 0, "delta": {"content": f"token{i} "}}]}
+            chunk = {
+                "id": "mock-1",
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": {"content": f"token{i} "}}],
+            }
             yield f"data: {json.dumps(chunk)}\n\n"
             await asyncio.sleep(LATENCY_S / CHUNKS)
-        final = {"id": "mock-1", "object": "chat.completion.chunk", "created": created,
-                 "model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                 "usage": _usage(body)}
+        final = {
+            "id": "mock-1",
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": _usage(body),
+        }
         yield f"data: {json.dumps(final)}\n\n"
         yield "data: [DONE]\n\n"
 

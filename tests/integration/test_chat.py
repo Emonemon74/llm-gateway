@@ -36,14 +36,7 @@ async def test_unknown_model_is_404(gateway):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-async def test_upstream_5xx_becomes_502(monkeypatch, stream):
-    monkeypatch.setenv("MOCK_LATENCY_MS", "1")
-    monkeypatch.setenv("MOCK_ERROR_RATE", "1")
-    import importlib
-
-    import mock_provider.main as m
-    from tests.conftest import make_gateway
-    m = importlib.reload(m)
-    async with make_gateway(m.app) as gw:
-        r = await gw.post("/v1/chat/completions", json=BODY | {"stream": stream})
+async def test_upstream_5xx_becomes_502(monkeypatch, gateway, mock_module, stream):
+    monkeypatch.setattr(mock_module, "ERROR_RATE", 1.0)
+    r = await gateway.post("/v1/chat/completions", json=BODY | {"stream": stream})
     assert r.status_code == 502
