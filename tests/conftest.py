@@ -3,11 +3,13 @@ import os
 # Must be set before any `app` import: settings are read at import time.
 os.environ["DATABASE_URL"] = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway_test"
 os.environ["ADMIN_TOKEN"] = "test-admin-token"
+os.environ["REDIS_URL"] = "redis://localhost:6379/1"  # db 1: never touches dev data
 
 import importlib
 
 import httpx
 import pytest
+import redis.asyncio as aioredis
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
@@ -15,6 +17,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.session import make_engine, make_sessionmaker
+from app.limits.rate_limiter import RateLimiter
 from app.main import create_app
 from app.providers.openai_compat import OpenAICompatProvider
 
@@ -52,7 +55,13 @@ async def app(mock_module):
     app = make_app(mock_module.app)
     engine = make_engine(settings.database_url, poolclass=NullPool)
     app.state.sessionmaker = make_sessionmaker(engine)
+    redis = aioredis.from_url(settings.redis_url)
+    await redis.flushdb()
+    app.state.redis = redis
+    app.state.limiter = RateLimiter(redis)
     yield app
+    await redis.flushdb()
+    await redis.aclose()
     async with engine.begin() as conn:
         await conn.execute(text("TRUNCATE tenants CASCADE"))
     await engine.dispose()
@@ -81,3 +90,8 @@ async def gateway(app, api_key):
         headers={"Authorization": f"Bearer {api_key}"},
     ) as c:
         yield c
+
+
+@pytest.fixture
+def limiter(app) -> RateLimiter:
+    return app.state.limiter

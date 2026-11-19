@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     upstream_timeout_s: float = 60.0
 
     database_url: str = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway"
+    redis_url: str = "redis://localhost:6379/0"
     # Bearer token for /admin/*. Empty = admin API disabled.
     admin_token: str = ""
 
