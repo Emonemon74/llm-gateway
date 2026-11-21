@@ -67,6 +67,7 @@ deploy/seed_demo.sh demo           # prints an API key ONCE, save it
 ```
 ```python
 from openai import OpenAI
+
 c = OpenAI(base_url="https://<your-host>/v1", api_key="sk-gw-...")
 print(c.chat.completions.create(model="demo", messages=[{"role": "user", "content": "hi"}]))
 ```
