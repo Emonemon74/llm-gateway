@@ -9,6 +9,7 @@ metrics, without changing client code.
 
 ```python
 from openai import OpenAI
+
 client = OpenAI(base_url="https://<your-gateway>/v1", api_key="sk-gw-...")
 client.chat.completions.create(model="smart", messages=[{"role": "user", "content": "hi"}])
 ```
